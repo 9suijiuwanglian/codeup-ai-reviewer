@@ -1,0 +1,98 @@
+# 默认值。调参请复制成 values-local.yaml 覆盖，不要改这个文件。
+#
+# ⚠️ 如果你的集群用了 existingSecret，注意：chart 不渲染 Secret 时，
+#    values 里的密钥类参数**不会自动进 Pod**。本 chart 已经在 deployment/cronjob
+#    的 env: 里**显式下发**了所有调参项（env 优先级高于 envFrom），所以不受影响。
+#    但你自己新增调参项时，记得照抄这个模式，否则会"改了 values 不生效"。
+
+image:
+  repository: <YOUR_REGISTRY>/codeup-ai-reviewer
+  tag: "0.1.0"
+  pullPolicy: IfNotPresent
+  # 私有仓库必须配凭据，否则 ImagePullBackOff。
+  # 集群重建后 dockerconfigjson 会全部归零，这是最常见的"昨天还好今天拉不到"
+  pullSecrets: []
+
+# ★ 必须是 1。state.json 存在 RWO 云盘上，跨节点不可共享，
+#   多副本会导致同一个 MR 被评两遍、评论重复。
+replicaCount: 1
+
+# 复用已有的 Secret（里面放 CODEUP_TOKEN / LLM_API_KEY / WEBHOOK_TOKEN）
+# 设了它，chart 不再渲染 secret.yaml，此时上面 codeup.token / llm.apiKey 会被忽略
+existingSecret: ""
+
+# webhook 入口自己的校验头。留空会自动随机生成（但那样你就不知道值了，
+# 只适合内网）。公网暴露时务必固定一个。
+webhookToken: "<YOUR_WEBHOOK_TOKEN>"
+
+codeup:
+  # 用了 existingSecret 就留空，否则填在这里（占位符不改的话，Pod 启动会直接报错退出，
+  # 不会静默用错 token —— 这是刻意设计的失败方式）
+  token: "<YOUR_CODEUP_TOKEN>"
+  orgId: "<YOUR_ORG_ID>"
+  domain: "https://openapi-rdc.aliyuncs.com"
+  gitUser: "oauth2"
+  # 格式 id=gitUrl，多个用逗号分隔
+  repos: "<REPO_ID>=https://codeup.aliyun.com/<ORG>/<GROUP>/<REPO>.git"
+
+llm:
+  apiKey: "<YOUR_LLM_API_KEY>"
+  baseUrl: "https://api.deepseek.com"
+  model: "deepseek-chat"
+  # 单次输出预算。推理型模型会吃掉一部分，给小了会出现 JSON 断在半路。
+  maxTokens: 131072
+  temperature: "0.2"
+
+options:
+  # 每批 diff 上限（字符）。决定"分几批"，不决定"能看多少"。
+  # 调小不会更安全，只会把文件切碎、让模型看到半个文件。
+  maxDiffChars: 400000
+  batchReview: "1"
+  maxBatches: "8"
+  maxSplitDepth: "3"
+  globalReview: "1"
+  crossMaxFiles: "20"
+  crossMaxChars: "120000"
+  crossPatterns: "(?i)(filter|interceptor|security|auth|transaction|config|common|aspect)"
+  # 故意只读源码，不读 yml/properties（配置里常有口令和密钥）
+  crossExts: "java,kt"
+  # 云效评论硬上限 65535，留余量
+  commentMaxChars: "60000"
+  postInline: "0"
+  inlineLimit: "5"
+  dryRun: "1"
+
+resources:
+  requests:
+    cpu: 200m
+    memory: 256Mi
+  limits:
+    cpu: "1"
+    memory: 1Gi
+
+persistence:
+  enabled: true
+  # state.json 和 clone 下来的仓库都放这儿，建议给 5Gi 以上
+  size: 5Gi
+  storageClass: ""
+  accessMode: ReadWriteOnce
+
+service:
+  type: ClusterIP
+  port: 80
+
+ingress:
+  enabled: false
+  className: nginx
+  host: review.example.com
+  path: /webhook
+  tls: false
+
+# 定时轮询兜底：不依赖 webhook 配置，适合"webhook 老是配不好"的环境。
+# ⚠️ 全新安装时 PVC 是空盘，首次轮询会把所有 opened MR 全评一遍（刷屏）。
+#    开之前先跑一次 list 数一下。
+cronjob:
+  enabled: false
+  schedule: "*/5 * * * *"
+  # 0 = 不限
+  limitMr: "0"

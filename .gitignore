@@ -1,0 +1,10 @@
+.env
+work/
+__pycache__/
+*.pyc
+*.pyo
+state.json
+repo/
+.idea/
+.vscode/
+*.log

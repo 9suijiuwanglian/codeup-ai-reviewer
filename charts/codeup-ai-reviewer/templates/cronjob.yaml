@@ -1,0 +1,73 @@
+{{- if .Values.cronjob.enabled }}
+# 定时轮询兜底。适合 webhook 老是配不好、或者想补评漏掉的情况。
+# ⚠️ 首次启用前先跑一次 `python -m src.cli list`，确认 opened MR 数量，
+#    否则空盘状态下会把所有历史 MR 全评一遍。
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "car.fullname" . }}-poll
+  labels:
+    {{- include "car.labels" . | nindent 4 }}
+spec:
+  schedule: {{ .Values.cronjob.schedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      # 一次轮询可能要跑十几分钟（多个 MR、每批 100 秒）
+      activeDeadlineSeconds: 1800
+      template:
+        spec:
+          restartPolicy: Never
+          {{- with .Values.image.pullSecrets }}
+          imagePullSecrets:
+            {{- toYaml . | nindent 8 }}
+          {{- end }}
+          containers:
+            - name: poll
+              image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+              imagePullPolicy: {{ .Values.image.pullPolicy }}
+              command: ["python", "-m", "src.cli", "check"]
+              envFrom:
+                - secretRef:
+                    name: {{ include "car.secretName" . }}
+              # 与 Deployment 保持同一套显式下发，避免两边行为不一致
+              env:
+                - name: CODEUP_ORG_ID
+                  value: {{ .Values.codeup.orgId | quote }}
+                - name: CODEUP_DOMAIN
+                  value: {{ .Values.codeup.domain | quote }}
+                - name: CODEUP_REPOS
+                  value: {{ .Values.codeup.repos | quote }}
+                - name: LLM_BASE_URL
+                  value: {{ .Values.llm.baseUrl | quote }}
+                - name: LLM_MODEL
+                  value: {{ .Values.llm.model | quote }}
+                - name: LLM_MAX_TOKENS
+                  value: {{ .Values.llm.maxTokens | quote }}
+                - name: MAX_DIFF_CHARS
+                  value: {{ .Values.options.maxDiffChars | quote }}
+                - name: MAX_BATCHES
+                  value: {{ .Values.options.maxBatches | quote }}
+                - name: GLOBAL_REVIEW
+                  value: {{ .Values.options.globalReview | quote }}
+                - name: DRY_RUN
+                  value: {{ .Values.options.dryRun | quote }}
+                - name: REPO_DIR
+                  value: /data/repo
+                - name: STATE_FILE
+                  value: /data/state.json
+              volumeMounts:
+                - name: data
+                  mountPath: /data
+          volumes:
+            - name: data
+              {{- if .Values.persistence.enabled }}
+              persistentVolumeClaim:
+                claimName: {{ include "car.fullname" . }}
+              {{- else }}
+              emptyDir: {}
+              {{- end }}
+{{- end }}

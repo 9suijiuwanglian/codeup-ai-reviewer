@@ -1,0 +1,110 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "car.fullname" . }}
+  labels:
+    {{- include "car.labels" . | nindent 4 }}
+spec:
+  # ★ 必须是 1：state.json 在 RWO 盘上，跨节点共享不了，
+  #   多副本会让同一个 MR 被评两遍、评论重复。
+  replicas: {{ .Values.replicaCount }}
+  strategy:
+    # 单副本 + RWO 盘，必须 Recreate，否则新 Pod 等旧 Pod 释放磁盘会卡住
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "car.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        {{- include "car.labels" . | nindent 8 }}
+    spec:
+      {{- with .Values.image.pullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: webhook
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8080
+          envFrom:
+            - secretRef:
+                name: {{ include "car.secretName" . }}
+          # ★★ 关键：所有调参项必须在这里**显式下发**。
+          #    env 的优先级高于 envFrom，所以即使用了 existingSecret
+          #    （chart 不渲染 Secret），values 里的调参依然生效。
+          #    新增调参项时请照抄这个模式，否则会"改了 values 不重启也不生效"。
+          env:
+            - name: CODEUP_ORG_ID
+              value: {{ .Values.codeup.orgId | quote }}
+            - name: CODEUP_DOMAIN
+              value: {{ .Values.codeup.domain | quote }}
+            - name: CODEUP_GIT_USER
+              value: {{ .Values.codeup.gitUser | quote }}
+            - name: CODEUP_REPOS
+              value: {{ .Values.codeup.repos | quote }}
+            - name: LLM_BASE_URL
+              value: {{ .Values.llm.baseUrl | quote }}
+            - name: LLM_MODEL
+              value: {{ .Values.llm.model | quote }}
+            - name: LLM_MAX_TOKENS
+              value: {{ .Values.llm.maxTokens | quote }}
+            - name: LLM_TEMPERATURE
+              value: {{ .Values.llm.temperature | quote }}
+            - name: MAX_DIFF_CHARS
+              value: {{ .Values.options.maxDiffChars | quote }}
+            - name: BATCH_REVIEW
+              value: {{ .Values.options.batchReview | quote }}
+            - name: MAX_BATCHES
+              value: {{ .Values.options.maxBatches | quote }}
+            - name: MAX_SPLIT_DEPTH
+              value: {{ .Values.options.maxSplitDepth | quote }}
+            - name: GLOBAL_REVIEW
+              value: {{ .Values.options.globalReview | quote }}
+            - name: CROSS_MAX_FILES
+              value: {{ .Values.options.crossMaxFiles | quote }}
+            - name: CROSS_MAX_CHARS
+              value: {{ .Values.options.crossMaxChars | quote }}
+            - name: CROSS_PATTERNS
+              value: {{ .Values.options.crossPatterns | quote }}
+            - name: CROSS_EXTS
+              value: {{ .Values.options.crossExts | quote }}
+            - name: COMMENT_MAX_CHARS
+              value: {{ .Values.options.commentMaxChars | quote }}
+            - name: POST_INLINE
+              value: {{ .Values.options.postInline | quote }}
+            - name: INLINE_LIMIT
+              value: {{ .Values.options.inlineLimit | quote }}
+            - name: DRY_RUN
+              value: {{ .Values.options.dryRun | quote }}
+            - name: REPO_DIR
+              value: /data/repo
+            - name: STATE_FILE
+              value: /data/state.json
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 20
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "car.fullname" . }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}

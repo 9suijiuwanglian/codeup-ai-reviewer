@@ -1,0 +1,6 @@
+apiVersion: v2
+name: codeup-ai-reviewer
+description: 云效 Codeup 的 AI 代码评审机器人
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
