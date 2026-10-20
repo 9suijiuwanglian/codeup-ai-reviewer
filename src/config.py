@@ -107,6 +107,13 @@ class Config(object):
         self.post_inline = env_bool("POST_INLINE", False)
         self.inline_limit = int(env("INLINE_LIMIT", "5"))
 
+        # ---- 提交状态回写 ----
+        # 把评审结论写成云效「自动化检查」里的一个状态（就是那个绿勾）。
+        # 不需要流水线 / Runner / CI 插件，只是一个外部 HTTP 客户端在调 REST 接口。
+        # 代价：云效不校验真实性，这个勾可不可信完全由我们自己保证。
+        self.commit_status = env_bool("COMMIT_STATUS", True)
+        self.check_context = env("CHECK_CONTEXT", "ai-bug-scan")
+
         # ---- 运行时 ----
         self.repo_dir = env("REPO_DIR", "./work/repo")
         self.state_file = env("STATE_FILE", "./work/state.json")

@@ -79,6 +79,10 @@ spec:
               value: {{ .Values.options.postInline | quote }}
             - name: INLINE_LIMIT
               value: {{ .Values.options.inlineLimit | quote }}
+            - name: COMMIT_STATUS
+              value: {{ .Values.options.commitStatus | quote }}
+            - name: CHECK_CONTEXT
+              value: {{ .Values.options.checkContext | quote }}
             - name: DRY_RUN
               value: {{ .Values.options.dryRun | quote }}
             - name: REPO_DIR

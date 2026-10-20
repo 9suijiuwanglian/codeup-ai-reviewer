@@ -316,8 +316,10 @@ helm upgrade --install mr-review . -n mr-review -f values-local.yaml \
 **症状**：分支评审的问题全堆在一条评论里，没有行内标注；而且发完想校验发没发成功，查不到。
 
 **根因**：
-- 提交评论（commit comment）**没有 `file_path` / `line_number` 概念**，云效就是这么设计的。行内评论只有 MR 才有。
+- 提交评论（commit comment）**没有 `file_path` / `line_number` 概念**，云效就是这么设计的。行内评论只有合并请求才有。
 - 也没有 List 接口：`GET /commits/{sha}/comments` 返回 404。
+
+**另一条路（本项目未实现）**：云效还有 `/checkRuns` 接口，可以带行级批注。也就是说"提交不能行内"不是绝对的——只是不能走 comments 这条路。如果你的场景必须行级，去研究 checkRuns，别在 comments 上浪费时间。
 
 **修法**：接受它。问题写进正文，用"文件:行号"文字标注。发完去界面看：
 

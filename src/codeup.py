@@ -108,6 +108,34 @@ class Codeup(object):
                 % (self.cfg.org_id, self.encode_repo(repo), sha))
         return self._call("POST", path, body={"content": content})
 
+    def create_commit_status(self, repo, sha, state, description="",
+                             context=None, target_url=""):
+        """回写提交状态——云效「自动化检查」里那个绿勾，就是这个接口画出来的。
+
+        ★ 这是「不接流水线也能进云效检查列表」的全部秘密：
+          没有任何 CI 插件、没有 Runner、没有 .workflow/ 配置，
+          就是一个外部服务在评审完之后，主动 POST 一次状态。
+
+        ★ 由此带来的约束（必须让使用者知道）：
+          云效**不校验我们真跑了什么**，它只负责把外部系统上报的结果渲染出来。
+          也就是说，这个绿勾的可信度 100% 由我们自己保证。
+          这也是为什么云效把它归类为「三方」状态，而不是内置检查。
+
+        context 是检查项的唯一标识，界面上显示的就是它（默认 ai-bug-scan）。
+        state 取 success / failure / pending / error（以云效当前文档为准）。
+        """
+        ctx = context or "ai-bug-scan"
+        path = ("/oapi/v1/codeup/organizations/%s/repositories/%s/commits/%s/statuses"
+                % (self.cfg.org_id, self.encode_repo(repo), sha))
+        body = {
+            "context": ctx,
+            "state": state,
+            "description": (description or "")[:200],
+        }
+        if target_url:
+            body["targetUrl"] = target_url
+        return self._call("POST", path, body=body)
+
     def list_branches(self, repo):
         path = ("/oapi/v1/codeup/organizations/%s/repositories/%s/branches"
                 % (self.cfg.org_id, self.encode_repo(repo)))

@@ -61,6 +61,12 @@ options:
   postInline: "0"
   inlineLimit: "5"
   dryRun: "1"
+  # 提交状态回写：评审完主动 POST /commits/{sha}/statuses，
+  # 云效「自动化检查」里就会出现这个勾。不需要流水线、Runner 或 CI 插件。
+  # ⚠️ 云效不校验真实性，这个勾可不可信靠我们自己保证 —— 所以别配成阻断。
+  commitStatus: "1"
+  # 检查项名字，就是界面上显示的那个
+  checkContext: "ai-bug-scan"
 
 resources:
   requests:

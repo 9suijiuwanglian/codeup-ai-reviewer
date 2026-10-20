@@ -109,6 +109,79 @@ push 事件
 
 ---
 
+## 怎么接进云效：一条 webhook，不用流水线
+
+这是整个项目里最容易让人意外的一点：**没有 CI 插件、没有 Runner、没有 `.workflow/` 配置，它却出现在云效的「自动化检查」里，还带一个绿勾。**
+
+因为那个勾不是云效跑出来的，是我们自己报上去的。
+
+### 两条路，选错一条要多背一堆东西
+
+| | 三方提交状态（本项目） | 云效 Flow 流水线 / CI 插件 |
+|---|---|---|
+| 谁触发 | 云效 webhook → 打到我们自己的服务 | 云效流水线调度 |
+| 谁执行 | 我们自己的 K8s Pod | 云效 Runner（构建集群或你装的主机） |
+| 状态从哪来 | 我们主动 POST `/commits/{sha}/statuses` | 流水线跑完，云效自己回写 |
+| 云效侧要配什么 | 一条 webhook + 一个令牌 | 一条流水线（yaml 或界面拖拽） |
+| 代码放哪 | 我们自己的镜像 | 仓库里的 `.workflow/` |
+| 界面归类 | 「自动化检查」→ 三方提交状态 | 「自动化检查」→ 流水线 |
+
+### 为什么选左边
+
+| 原因 | 说明 |
+|---|---|
+| 模型密钥不出内网 | 模型 key 在我们 K8s 的 Secret 里，不用配到云效去 |
+| 不受流水线时长和资源限制 | 初筛十几秒，大 diff 分 8 批要跑几分钟；放在自己 Pod 里更可控 |
+| 云效侧零侵入 | 不加 yaml、不加流水线，只加一条 webhook |
+| 能复用到别的平台 | 同一套逻辑换成 GitLab / Gitee 的 webhook 也能跑，只改回写接口 |
+
+### 实际链路
+
+```
+云效 push
+   │  POST https://<你的域名>/webhook
+   ▼
+mr-review-webhook（你自己的 Pod）
+   │  ① git diff before..after
+   │  ② 调模型出结论
+   ▼
+   │  ③ 主动 POST 云效 OpenAPI
+   │     ├─ /commits/{sha}/statuses   ← 自动化检查里那个勾
+   │     ├─ /commits/{sha}/comments   ← 提交评论
+   │     └─ /checkRuns                ← 行级批注（本仓库未实现）
+   ▼
+云效把这些记录渲染成界面
+```
+
+核心代码就是这几行（`src/codeup.py`）：
+
+```python
+def create_commit_status(self, repo, sha, state, description="", context=None):
+    path = ("/oapi/v1/codeup/organizations/%s/repositories/%s/commits/%s/statuses"
+            % (self.cfg.org_id, self.encode_repo(repo), sha))
+    body = {"context": context or "ai-bug-scan", "state": state,
+            "description": description[:200]}
+    return self._call("POST", path, body=body)
+```
+
+`context` 就是界面上那个检查项名字，改了它，云效里显示的就是新名字。
+
+### 代价：这个勾是自己给自己发的
+
+云效只知道"有个外部系统说这条检查通过了"，**它不校验我们真跑了什么**。这也是为什么它被归在「三方」而不是「内置检查」里。
+
+所以这条链路真正的风险不在技术，在信任：只要我们的服务说通过，云效就显示通过。两条底线——**别把它配成阻断**，**别让令牌泄露**。
+
+### 怎么确认它真不是流水线跑的
+
+三条自查，一分钟：
+
+1. 云效「流水线」页面里没有这条流水线 → 不是 Flow 跑的
+2. 仓库里没有 `.workflow/` 目录 → 没有 CI 配置
+3. Pod 日志里有 `提交状态已写入` → 是我们服务主动写的
+
+---
+
 ## 这些设计是怎么被逼出来的
 
 前面每一条，背后都有一个坑。
@@ -172,9 +245,10 @@ python -m src.reviewer once --mr 1 --dry-run   # 只打印，不发评论
                       │     越权/事务/契约/并发        │
                       └───────────┬──────────────────┘
                                   │
-                 ┌────────────────┴────────────────┐
-                 ▼                                 ▼
-        云效评论（行内/整体）              企业微信（@作者）
+                ┌─────────────────┼─────────────────┐
+                ▼                 ▼                 ▼
+        云效评论（整体）    云效提交状态        企业微信（@作者）
+                        （自动化检查那个勾）
 ```
 
 ---

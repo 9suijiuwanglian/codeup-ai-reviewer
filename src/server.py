@@ -117,10 +117,20 @@ class Handler(BaseHTTPRequestHandler):
             repo = self.match_repo(info["repo_name"])
             if not repo:
                 return
+            # 先挂一个 pending：初筛 15~20 秒，大 diff 分 8 批会更久。
+            # 不挂的话，云效界面上这条检查一直是灰的，用户会以为根本没触发。
+            self.report_status(repo, info["after"], "pending", "AI 初筛中…")
+
+            results = []
             # 兜底：扫这个仓库所有 opened MR，靠版本去重
             for m in opened_mrs(cu, cfg, only_repo=repo):
                 if m.get("local_id"):
-                    self.review_mr(m)
+                    got = self.review_mr(m)
+                    if got:
+                        results.append(got)
+
+            state, desc = self.summarize_status(results)
+            self.report_status(repo, info["after"], state, desc)
 
     def match_repo(self, name):
         if not name:
@@ -131,6 +141,46 @@ class Handler(BaseHTTPRequestHandler):
                 return r
         return None
 
+    def report_status(self, repo, sha, state, desc):
+        """把结论写回云效「自动化检查」。
+
+        这是整个接入方式的核心：没有流水线、没有 Runner、没有 CI 插件，
+        就是一个外部服务在评审完之后主动 POST 一次状态。
+        云效不校验真实性，所以这个绿勾有多可信，完全取决于我们。
+
+        状态回写失败**不能影响评审本身**——评论已经发出去了，
+        一个状态没写上，不该让整次评审算失败。
+        """
+        cfg = self.cfg
+        if not cfg.commit_status or not sha or cfg.dry_run:
+            return
+        try:
+            code, resp = self.cu.create_commit_status(
+                repo["id"], sha, state, desc, context=cfg.check_context)
+            print("提交状态已写入：%s %s" % (state, desc), flush=True)
+            if code >= 300:
+                print("状态回写返回 %s：%r" % (code, resp), flush=True)
+        except Exception as exc:
+            print("状态回写失败：%r" % (exc,), flush=True)
+
+    @staticmethod
+    def summarize_status(results):
+        """把多个 MR 的评审结论压成一条提交状态。
+
+        注意 state=failure 只是"有高危问题"的意思，不代表阻断——
+        云效那边这条检查是配成非阻断的，红叉只是提示。
+        """
+        if not results:
+            return "success", "AI 初筛完成（本次推送未关联打开的合并请求）"
+        issues = sum(len(r.get("issues") or []) for r in results)
+        highs = sum(1 for r in results if r.get("risk") == "high")
+        if highs:
+            return "failure", "AI 初筛发现 %d 个高危，共 %d 条提示（仅提示，不阻断）" % (
+                highs, issues)
+        if issues:
+            return "success", "AI 初筛完成，%d 条提示，无高危" % issues
+        return "success", "AI 初筛通过，未发现问题"
+
     def review_mr(self, mr):
         cfg, cu = self.cfg, self.cu
         key = "%s#%s" % (mr["repo"]["id"], mr["local_id"])
@@ -138,14 +188,14 @@ class Handler(BaseHTTPRequestHandler):
         ver = mr_version(cu, mr["repo"], mr["local_id"])
         if ver and self.state.get(key) == ver:
             print("%s 版本未变，跳过" % key, flush=True)
-            return
+            return None
         if ver:
             self.state[key] = ver
 
         diff = make_diff(cfg, mr["repo"], mr["source"], mr["target"])
         if not diff.strip():
             print("%s diff 为空，跳过" % key, flush=True)
-            return
+            return None
 
         stats = diff_stats(diff)
         batches, all_files, truncated = split_diff_batches(
@@ -159,10 +209,11 @@ class Handler(BaseHTTPRequestHandler):
 
         if cfg.dry_run:
             print(text, flush=True)
-            return
+            return merged
 
         post_review(cu, cfg, mr, text)
         notify.notify_review([], mr, merged)
+        return merged
 
 
 def serve(cfg, cu):
