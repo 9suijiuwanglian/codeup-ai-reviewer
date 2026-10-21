@@ -56,7 +56,7 @@
 | 密钥/Token | 与你 `WEBHOOK_TOKEN` 一致（会放在 `X-Webhook-Token` 头里） |
 | 触发事件 | **合并请求**（创建/更新/重新打开）+ **Push** |
 
-**必须勾 Push**，原因见 [PITFALLS.md 坑 3](PITFALLS.md)：云效在"MR 已建、之后又推提交"时不一定再发 MR 事件，只能靠 push 来对账。**只勾合并请求，会导致新提交漏评，但 MR 照样能合并。**
+**事件怎么勾**：合并请求（创建/更新/重新打开）是必须的。Push 要不要一起勾，取决于你们那边在"MR 建好后再推提交"时会不会补发 MR 更新事件——这个我没做对照实验，给不了死结论。两种都勾最省心：重复的事件会被版本去重挡掉，不会重复评论。相关背景见 [PITFALLS.md 坑 3](PITFALLS.md)。
 
 `【待截图：Webhook 新建页面，勾选事件的界面】`
 
@@ -97,6 +97,20 @@ docker push <你的仓库>/codeup-ai-reviewer:0.1.0
 `【待截图：镜像仓库里能看到这个 tag】`
 
 > 受限网络环境（拉不到 docker.io 基础镜像）的处理，见 [PITFALLS.md 坑 16](PITFALLS.md)。
+
+---
+
+## 3.5 企微群（可选）
+
+不配也能用，就是不推群、只写云效评论。要推的话：
+
+```yaml
+wecom:
+  webhooks: "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxxx"
+  notifyLevels: "high"        # 想连中危一起推就写 high,medium
+```
+
+多个群用逗号分隔。**注意别把 webhook 地址写进 ConfigMap 或提交到仓库**，它等同于这个群的发言权限；走 Secret 或者 `existingSecret`。
 
 ---
 
@@ -151,7 +165,7 @@ kubectl rollout status deploy/mr-review-codeup-ai-reviewer -n mr-review --timeou
 | 阶段 | 做法 |
 |---|---|
 | 第 1 周 | `dryRun=1`，只自己看日志，不发评论 |
-| 第 2 周 | 只对**一个仓库**开，`max_issues` 设小（3 条），只推 high |
+| 第 2 周 | 只对**一个仓库**开，`options.maxIssues` 设小（3 条），只推 high |
 | 第 3~4 周 | 收集开发的反驳意见，攒"不该说什么"清单（见 `examples/review-rules.md`） |
 | 第 2 个月 | 规则稳定了，再扩到更多仓库，允许推 medium |
 

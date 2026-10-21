@@ -1,0 +1,53 @@
+# 复制成项目根目录的 values-local.yaml，改完再 install。
+#   cp examples/values-local.yaml values-local.yaml
+#
+# 只改下面标了 ★ 的地方，其余保持默认即可。
+
+# ★ 1. 镜像。仓库里没有预构建镜像，需要自己 build 后 push。
+image:
+  repository: registry.cn-hangzhou.aliyuncs.com/your-ns/codeup-ai-reviewer
+  tag: "0.1.0"
+  # 私有仓库必须配，否则 ImagePullBackOff
+  pullSecrets: []
+  # pullSecrets:
+  #   - name: your-registry-secret
+
+# ★ 2. 仓库 ID 和地址。ID 在仓库「设置 → 基本信息」里。
+#      多个仓库用逗号分隔。
+# ★ 4. 密钥。写在下面就是普通 Secret；也可以设 existingSecret 复用已有的（优先）。
+codeup:
+  orgId: "your-org-id"
+  repos: "1234567=https://codeup.aliyun.com/your-org/your-group/your-repo.git"
+  token: "your-codeup-token"
+
+# ★ 5. 模型。默认 DeepSeek，换别的只改 baseUrl 和 model。
+llm:
+  apiKey: "your-llm-key"
+  baseUrl: "https://api.deepseek.com"
+  model: "deepseek-chat"
+
+# ★ 3. webhook 校验头。自己定一个随机串，云效 webhook 配置里填同一个。
+#      公网暴露时不填等于不设防。
+webhookToken: "change-me-to-a-random-string"
+
+# 复用已有的 Secret（里面放 CODEUP_TOKEN / LLM_API_KEY / WEBHOOK_TOKEN）。
+# 设了它，上面 codeup.token / llm.apiKey 会被忽略。
+existingSecret: ""
+
+# ★ 6. 上线前必须先跑演练，确认内容没问题再改成 "0"。
+options:
+  dryRun: "1"
+
+# 企业微信群机器人。留空就不推群。
+wecom:
+  webhooks: ""
+  notifyLevels: "high"
+
+# 对外的访问入口。要么开 ingress，要么用 LoadBalancer / NodePort。
+# 云效 webhook 的 URL 就是这里配的域名 + /webhook
+ingress:
+  enabled: false
+  className: nginx
+  host: review.example.com
+  path: /webhook
+  tls: false
