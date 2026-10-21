@@ -106,6 +106,18 @@ class Config(object):
         self.comment_max_chars = int(env("COMMENT_MAX_CHARS", "60000"))  # 云效硬上限 65535
         self.post_inline = env_bool("POST_INLINE", False)
         self.inline_limit = int(env("INLINE_LIMIT", "5"))
+        # 评论和群消息里最多列几条问题。剩下的仍然写进评论，只是不逐条展开。
+        self.max_issues = int(env("MAX_ISSUES", "5"))
+
+        # ---- 企微通知 ----
+        # 群机器人地址，多个用逗号分隔。留空 = 只写评论，不推群。
+        self.wecom_webhooks = [
+            h.strip() for h in (env("WECOM_WEBHOOKS", "") or "").split(",") if h.strip()
+        ]
+        # 只在这些风险级别时推群，默认只有高危。留空 = 全部推。
+        self.notify_levels = [
+            x.strip() for x in (env("NOTIFY_LEVELS", "high") or "").split(",") if x.strip()
+        ]
 
         # ---- 提交状态回写 ----
         # 把评审结论写成云效「自动化检查」里的一个状态（就是那个绿勾）。

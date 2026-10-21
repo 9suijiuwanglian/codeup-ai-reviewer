@@ -9,7 +9,9 @@
 谁的版本变了就评谁。这不是 bug，是**有意设计**——云效在"MR 已建、之后又推提交"
 时不一定会再发 MR 事件，只能靠 push 来对账。
 
-⚠️ 因此云效侧 **必须勾上 push 事件**，否则新提交会漏评，却照样能合并。
+⚠️ push 事件要不要勾，取决于云效在"MR 已建、之后又推提交"时会不会补发 MR 事件。
+   我这边只确认了 push 的 payload 里没有 MR 编号，没做过"只勾 MR 事件"的对照，
+   所以不给死结论。两种都勾是安全的：重复的靠版本去重挡掉。
 """
 import json
 import threading
@@ -18,7 +20,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from .codeup import Codeup, mr_version, norm_mr, opened_mrs
 from .diffutil import diff_stats, make_diff, split_diff_batches
 from .reviewer import merge_batch_results, post_review, render_comment, review_batches
-from . import notify
+from . import notify, state as statemod
 
 SKIP_ACTIONS = {"merge", "close", "delete", "reject"}
 
@@ -190,6 +192,8 @@ class Handler(BaseHTTPRequestHandler):
             print("%s 版本未变，跳过" % key, flush=True)
             return None
         if ver:
+            # 只占内存，评审成功后才落盘。中途崩了会重评一次（可能重复一条评论），
+            # 但不会漏。漏评比重复危险得多 —— 见 PITFALLS 坑 1。
             self.state[key] = ver
 
         diff = make_diff(cfg, mr["repo"], mr["source"], mr["target"])
@@ -212,14 +216,18 @@ class Handler(BaseHTTPRequestHandler):
             return merged
 
         post_review(cu, cfg, mr, text)
-        notify.notify_review([], mr, merged)
+        notify.notify_review(cfg.wecom_webhooks, mr, merged,
+                             max_issues=cfg.max_issues,
+                             level_filter=cfg.notify_levels)
+        statemod.save(cfg.state_file, self.state)
         return merged
 
 
 def serve(cfg, cu):
     Handler.cfg = cfg
     Handler.cu = cu
-    Handler.state = {}
+    Handler.state = statemod.load(cfg.state_file)
+    print("已载入去重状态 %d 条（%s）" % (len(Handler.state), cfg.state_file), flush=True)
     srv = ThreadingHTTPServer(("0.0.0.0", 8080), Handler)
     print("webhook 监听 0.0.0.0:8080", flush=True)
     srv.serve_forever()

@@ -58,8 +58,12 @@ options:
   crossExts: "java,kt"
   # 云效评论硬上限 65535，留余量
   commentMaxChars: "60000"
+  # 评论和群消息里最多列几条问题
+  maxIssues: "5"
   postInline: "0"
   inlineLimit: "5"
+  # ⚠️ 默认 1 = 只打印不发送。装完先看日志确认内容像样，再改成 0。
+  #    不改的话，Pod 正常、webhook 通、日志有输出，但云效里一条评论都没有。
   dryRun: "1"
   # 提交状态回写：评审完主动 POST /commits/{sha}/statuses，
   # 云效「自动化检查」里就会出现这个勾。不需要流水线、Runner 或 CI 插件。
@@ -67,6 +71,14 @@ options:
   commitStatus: "1"
   # 检查项名字，就是界面上显示的那个
   checkContext: "ai-bug-scan"
+
+# 企业微信机器人。留空就只写云效评论，不推群。
+wecom:
+  # 群机器人地址，多个用逗号分隔
+  # https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxxx
+  webhooks: ""
+  # 只在这些级别推群。默认只有高危，想连中危一起推写 high,medium
+  notifyLevels: "high"
 
 resources:
   requests:

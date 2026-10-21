@@ -29,16 +29,20 @@ spec:
             - name: poll
               image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
               imagePullPolicy: {{ .Values.image.pullPolicy }}
-              command: ["python", "-m", "src.cli", "check"]
+              {{- $limit := .Values.cronjob.limitMr | default "0" }}
+              command: ["python", "-m", "src.cli", "poll", "--limit", {{ $limit | quote }}]
               envFrom:
                 - secretRef:
                     name: {{ include "car.secretName" . }}
-              # 与 Deployment 保持同一套显式下发，避免两边行为不一致
+              # 和 Deployment 逐项对齐。少一项，这一项在 cronjob 里就是默认值，
+              # 表现是"webhook 评得对，定时任务评出来不一样"。
               env:
                 - name: CODEUP_ORG_ID
                   value: {{ .Values.codeup.orgId | quote }}
                 - name: CODEUP_DOMAIN
                   value: {{ .Values.codeup.domain | quote }}
+                - name: CODEUP_GIT_USER
+                  value: {{ .Values.codeup.gitUser | quote }}
                 - name: CODEUP_REPOS
                   value: {{ .Values.codeup.repos | quote }}
                 - name: LLM_BASE_URL
@@ -47,12 +51,42 @@ spec:
                   value: {{ .Values.llm.model | quote }}
                 - name: LLM_MAX_TOKENS
                   value: {{ .Values.llm.maxTokens | quote }}
+                - name: LLM_TEMPERATURE
+                  value: {{ .Values.llm.temperature | quote }}
                 - name: MAX_DIFF_CHARS
                   value: {{ .Values.options.maxDiffChars | quote }}
+                - name: BATCH_REVIEW
+                  value: {{ .Values.options.batchReview | quote }}
                 - name: MAX_BATCHES
                   value: {{ .Values.options.maxBatches | quote }}
+                - name: MAX_SPLIT_DEPTH
+                  value: {{ .Values.options.maxSplitDepth | quote }}
                 - name: GLOBAL_REVIEW
                   value: {{ .Values.options.globalReview | quote }}
+                - name: CROSS_MAX_FILES
+                  value: {{ .Values.options.crossMaxFiles | quote }}
+                - name: CROSS_MAX_CHARS
+                  value: {{ .Values.options.crossMaxChars | quote }}
+                - name: CROSS_PATTERNS
+                  value: {{ .Values.options.crossPatterns | quote }}
+                - name: CROSS_EXTS
+                  value: {{ .Values.options.crossExts | quote }}
+                - name: COMMENT_MAX_CHARS
+                  value: {{ .Values.options.commentMaxChars | quote }}
+                - name: MAX_ISSUES
+                  value: {{ .Values.options.maxIssues | quote }}
+                - name: POST_INLINE
+                  value: {{ .Values.options.postInline | quote }}
+                - name: INLINE_LIMIT
+                  value: {{ .Values.options.inlineLimit | quote }}
+                - name: COMMIT_STATUS
+                  value: {{ .Values.options.commitStatus | quote }}
+                - name: CHECK_CONTEXT
+                  value: {{ .Values.options.checkContext | quote }}
+                - name: WECOM_WEBHOOKS
+                  value: {{ .Values.wecom.webhooks | quote }}
+                - name: NOTIFY_LEVELS
+                  value: {{ .Values.wecom.notifyLevels | quote }}
                 - name: DRY_RUN
                   value: {{ .Values.options.dryRun | quote }}
                 - name: REPO_DIR
